@@ -259,6 +259,8 @@ button.ghost {
   background: white;
   border-radius: 12px;
   padding: 8px;
+  display: block;
+  margin: 0 auto;
 }
 
 /* ===== 右：タブ＋付箋＋グラフ ===== */
@@ -745,7 +747,7 @@ body.postMode #postOnly {
 
     <div id="qrBox">
       <button id="showQrBtn" type="button">📱 スマホ投稿用QRを表示</button>
-      <canvas id="qrCanvas"></canvas>
+      <img id="qrCanvas" alt="投稿用QRコード">
       <div id="qrUrl"></div>
     </div>
   </aside>
@@ -802,7 +804,7 @@ body.postMode #postOnly {
     <div class="qrModalCard">
       <h2>投稿用QRコード</h2>
       <p>スマホで読み取って投稿してください。ウインドウ右下をドラッグすると大きさを変えられます。</p>
-      <canvas id="qrModalCanvas"></canvas>
+      <img id="qrModalCanvas" alt="投稿用QRコード">
       <p id="qrModalUrl" style="word-break:break-all;font-size:12px;"></p>
       <button id="closeQrModalBtn">閉じる</button>
     </div>
@@ -915,9 +917,6 @@ let currentChartType = "bar";
 let showSlidePane = true;
 let showStickyPane = true;
 
-init();
-
-
 function init() {
   setupQr();
   setupSlideEvents();
@@ -938,25 +937,19 @@ function init() {
 }
 
 /* ===== QR ===== */
+const QR_DATA_URL = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAYwAAAGMCAIAAABGWwIdAAAHmElEQVR4nO3dMY4bMRBFQcvQ/a+8Th0ZDBrtx5mqA0iz0uqByQc/Pz8/vwCqfv/vBwD4F5EC0kQKSBMpIE2kgDSRAtJECkgTKSBNpIA0kQLSRApIEykgTaSANJEC0kQKSBMpIE2kgDSRAtJECkgTKSBNpIA0kQLSRApI+0690OfzmXqp69TuLjz5Lqaeeep73/wMb/x8bjT1GTpJAWkiBaSJFJAmUkCaSAFpIgWkiRSQJlJAmkgBaSIFpIkUkDa23TtR27idmNpebe7Fpmzuzmzc7rL5fTlJAWkiBaSJFJAmUkCaSAFpIgWkiRSQJlJAmkgBaSIFpIkUkLa63TuxuQna3EydvFftPrja3XNPvZvvxFN/FyecpIA0kQLSRApIEykgTaSANJEC0kQKSBMpIE2kgDSRAtJECkjLbffebHPft3mf4Kapz6e2X3szJykgTaSANJEC0kQKSBMpIE2kgDSRAtJECkgTKSBNpIA0kQLSbPeW1DZum/u+E7U77Gz3OpykgDSRAtJECkgTKSBNpIA0kQLSRApIEykgTaSANJEC0kQKSMtt9566mapt5U7U7u+bui+v9jmfeOrv4oSTFJAmUkCaSAFpIgWkiRSQJlJAmkgBaSIFpIkUkCZSQJpIAWmr270bN1NTprZpta3ciRv/rs3P582/ixNOUkCaSAFpIgWkiRSQJlJAmkgBaSIFpIkUkCZSQJpIAWkiBaR93nyfV83UhmtzU1a7527zefx2djhJAWkiBaSJFJAmUkCaSAFpIgWkiRSQJlJAmkgBaSIFpIkUkDa23avdd1Z7nU21e9xq99PVvq8TtXsANz9DJykgTaSANJEC0kQKSBMpIE2kgDSRAtJECkgTKSBNpIA0kQLSVrd7J27c0z31frpNN36nU27c3G2+l5MUkCZSQJpIAWkiBaSJFJAmUkCaSAFpIgWkiRSQJlJAmkgBaWPbvaM3i+2zTtR2eTduLU/UnmdTbXM3xXYPeAWRAtJECkgTKSBNpIA0kQLSRApIEykgTaSANJEC0kQKSPtuvlntzq8bX+fE5j7rzXvMTVPPfOO9lk5SQJpIAWkiBaSJFJAmUkCaSAFpIgWkiRSQJlJAmkgBaSIFpI1t92p7nymbO7gptbsUb1TbdZ546ns5SQFpIgWkiRSQJlJAmkgBaSIFpIkUkCZSQJpIAWkiBaSJFJC2eu/e1M6rtpmaUrvjb+oetylT77V5B+KNap+PkxSQJlJAmkgBaSIFpIkUkCZSQJpIAWkiBaSJFJAmUkCaSAFpq9u92s5rc0t4YnMPVds/1u6De/PdhbXncZIC0kQKSBMpIE2kgDSRAtJECkgTKSBNpIA0kQLSRApIEykgbWy7V9uC1e7d27wvb8qNm8QptWd+6v/GCScpIE2kgDSRAtJECkgTKSBNpIA0kQLSRApIEykgTaSANJEC0lbv3TuxeW9a7d69qfeq/V03PvPUe9U2pFM2/y4nKSBNpIA0kQLSRApIEykgTaSANJEC0kQKSBMpIE2kgDSRAtJWt3u1u8NO1HZVb767sPZd3OjG+x+dpIA0kQLSRApIEykgTaSANJEC0kQKSBMpIE2kgDSRAtJECkgb2+5t3pe3qbYl3FS7V662JZxS++3U/uedpIA0kQLSRApIEykgTaSANJEC0kQKSBMpIE2kgDSRAtJECkj7bG6dNjdBm7uzG+8ye7PN76L2/1PbY55wkgLSRApIEykgTaSANJEC0kQKSBMpIE2kgDSRAtJECkgTKSBtbLtX2w3VdoInnvrMte/rqW68c/CEkxSQJlJAmkgBaSIFpIkUkCZSQJpIAWkiBaSJFJAmUkCaSAFp36kXmtoN1V5nyo3bxtpnWNtI3nhn5Y37UCcpIE2kgDSRAtJECkgTKSBNpIA0kQLSRApIEykgTaSANJEC0sa2e2++N+1ko7R599yN+77a80zZfOan3oHoJAWkiRSQJlJAmkgBaSIFpIkUkCZSQJpIAWkiBaSJFJAmUkDa2HbvRG1XdaK2YzpR28HV3mvTjf/ztX2fkxSQJlJAmkgBaSIFpIkUkCZSQJpIAWkiBaSJFJAmUkCaSAFpq9u9E5uboM1dVe1OtNqmrPZ3nTzPU3eCtb/LSQpIEykgTaSANJEC0kQKSBMpIE2kgDSRAtJECkgTKSBNpIC03HbvqWp3mW3ehbf5t29uAG+8T7C2yzvhJAWkiRSQJlJAmkgBaSIFpIkUkCZSQJpIAWkiBaSJFJAmUkCa7d6Sp967t7lf21TbUU69Tm1LeMJJCkgTKSBNpIA0kQLSRApIEykgTaSANJEC0kQKSBMpIE2kgLTcdu/GndeJG++wO1F7nhO1Z77xjr/N36mTFJAmUkCaSAFpIgWkiRSQJlJAmkgBaSIFpIkUkCZSQJpIAWmr273ahmvT5n15tS3Yptoz1+5JnLL5/+MkBaSJFJAmUkCaSAFpIgWkiRSQJlJAmkgBaSIFpIkUkCZSQNqntgkC+JuTFJAmUkCaSAFpIgWkiRSQJlJAmkgBaSIFpIkUkCZSQJpIAWkiBaSJFJAmUkCaSAFpIgWkiRSQJlJAmkgBaSIFpIkUkCZSQJpIAWl/AMlZTCoADpEbAAAAAElFTkSuQmCC";
+
 function setupQr() {
   if (els.qrUrl) els.qrUrl.textContent = POST_URL;
   if (els.qrModalUrl) els.qrModalUrl.textContent = POST_URL;
 
-  if (!window.QRCode) {
-    setTimeout(setupQr, 300);
-    return;
-  }
-
+  // CDNのQRライブラリに依存せず、固定URLのQR画像をHTML内に埋め込んで表示します。
   if (els.qrCanvas) {
-    QRCode.toCanvas(els.qrCanvas, POST_URL, { width: 118, margin: 1 }, err => {
-      if (err) console.error("QR side error", err);
-    });
+    els.qrCanvas.src = QR_DATA_URL;
   }
 
   if (els.qrModalCanvas) {
-    QRCode.toCanvas(els.qrModalCanvas, POST_URL, { width: 480, margin: 1 }, err => {
-      if (err) console.error("QR modal error", err);
-    });
+    els.qrModalCanvas.src = QR_DATA_URL;
   }
 }
 
@@ -1798,6 +1791,8 @@ function escapeHtml(s) {
     "'": "&#39;"
   }[c]));
 }
+// HTML・定数・関数をすべて読み込んだ後に初期化
+init();
 </script>
 </body>
 </html>
