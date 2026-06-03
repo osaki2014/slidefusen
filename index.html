@@ -579,7 +579,7 @@ body.controlsOnly #bottomControls {
 
 .danmaku {
   position: absolute;
-  left: -70vw;
+  left: -40px;
   white-space: nowrap;
   font-size: 32px;
   font-weight: 900;
@@ -595,7 +595,7 @@ body.controlsOnly #bottomControls {
 
 @keyframes flyLeftToRight {
   from { transform: translateX(0); }
-  to { transform: translateX(170vw); }
+  to { transform: translateX(125vw); }
 }
 
 /* ===== ペン ===== */
@@ -898,7 +898,12 @@ let slides = [];
 let slideIndex = 0;
 let slideZoom = 1;
 let notes = [];
+let displayedNotes = [];
+let stickyNodeSignatures = new Map();
+let lastStickyBoardKey = "";
 let seenIds = new Set();
+let initialNotesLoaded = false;
+let pendingDanmakuIds = new Set();
 let noteCounter = 1;
 
 let drawingMode = false;
@@ -907,6 +912,14 @@ let isDrawing = false;
 let lastX = 0;
 let lastY = 0;
 const ctx = els.drawCanvas.getContext("2d");
+
+// 古いブラウザで CSS.escape が無い場合の保険
+if (!window.CSS) window.CSS = {};
+if (!CSS.escape) {
+  CSS.escape = function(value) {
+    return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+  };
+}
 
 let timerRunning = false;
 let timerStart = 0;
@@ -1108,46 +1121,167 @@ function listenNotes() {
       }, 0);
       noteCounter = maxNum + 1;
 
-      renderStickyBoard(notes);
-      renderCharts();
+      // 初回読み込みでは既存付箋をそのまま表示。
+      // 弾幕中のものがあれば renderStickyBoard 側で必ず非表示になります。
+      if (!initialNotesLoaded) {
+        initialNotesLoaded = true;
+        displayedNotes = incoming.slice();
+        seenIds = new Set(incoming.map(n => n.docId));
+        renderStickyBoard(displayedNotes);
+        renderCharts();
+        return;
+      }
 
-      incoming.forEach(n => {
-        if (!seenIds.has(n.docId)) {
-          const firstLoad = seenIds.size === 0 && incoming.length > 1;
+      // 新規投稿を判定
+      const newNotes = incoming.filter(n => !seenIds.has(n.docId));
+
+      if (newNotes.length > 0) {
+        // 新規投稿は、まず pending に入れる。
+        // これにより、どんな再描画が起きても右側付箋ボードにはまだ出ません。
+        newNotes.forEach(n => {
           seenIds.add(n.docId);
-          if (!firstLoad && !isPostMode) showDanmaku(n);
-        }
-      });
+
+          if (!isPostMode) {
+            queueDanmakuThenSticky(n);
+          }
+        });
+
+        // 既存付箋だけ更新。新規分は renderStickyBoard 内で除外されます。
+        displayedNotes = incoming.slice();
+        renderStickyBoard(displayedNotes);
+        renderCharts();
+        return;
+      }
+
+      // 新規投稿以外、たとえばGemini分類結果の更新は通常どおり反映。
+      displayedNotes = incoming.slice();
+      renderStickyBoard(displayedNotes);
+      renderCharts();
     }, error => {
       console.error("Firestore listen error", error);
       if (els.noteCount) els.noteCount.textContent = "Firestore読込エラー";
     });
 }
 
-function renderStickyBoard(list) {
-  if (!els.stickyBoard) return;
-  els.stickyBoard.innerHTML = "";
+function queueDanmakuThenSticky(note) {
+  if (!note || !note.docId) return;
 
-  const latestFirst = list.slice().sort((a, b) => {
+  // 先にpendingへ入れることで、付箋ボードへの表示を弾幕終了まで止める。
+  pendingDanmakuIds.add(note.docId);
+
+  showDanmaku(note, () => {
+    pendingDanmakuIds.delete(note.docId);
+
+    // Firestoreの最新データが来ていればそれを使う。
+    // まだ来ていない場合は一時データで表示する。
+    const existsInNotes = notes.some(n => n.docId === note.docId);
+    if (existsInNotes) {
+      displayedNotes = notes.slice();
+    } else {
+      const withoutSame = displayedNotes.filter(n => n.docId !== note.docId);
+      displayedNotes = [note, ...withoutSame];
+    }
+
+    renderStickyBoard(displayedNotes);
+    renderCharts();
+  });
+}
+
+function noteDomSignature(n) {
+  // FirestoreのserverTimestampは、送信直後に null → Timestamp に変わることがあります。
+  // それを署名に含めると、同じ付箋でも再描画されるので、ここでは表示に必要な内容だけにします。
+  return [
+    n.docId,
+    n.id,
+    n.name,
+    n.tag,
+    n.category,
+    n.text,
+    n.timecode
+  ].join("|");
+}
+
+function makeStickyBoardKey(list) {
+  return list.map(n => noteDomSignature(n)).join("||");
+}
+
+function noteHtml(n) {
+  return `
+    <div class="note-author">
+      <span>${escapeHtml(n.name)}</span>
+      <span class="note-tag">${escapeHtml(n.category || n.tag || "未分類")}</span>
+    </div>
+    <div class="note-text">${escapeHtml(n.text)}</div>
+    <div class="note-time">${n.createdAt ? n.createdAt.toLocaleTimeString("ja-JP", {hour:"2-digit", minute:"2-digit"}) : ""}</div>
+  `;
+}
+
+function renderStickyBoard(list, options = {}) {
+  if (!els.stickyBoard) return;
+
+  // 弾幕中の新規付箋は必ず右側ボードから除外する。
+  const visibleList = list.filter(n => !pendingDanmakuIds.has(n.docId));
+
+  const latestFirst = visibleList.slice().sort((a, b) => {
     const at = a.createdAt ? a.createdAt.getTime() : 0;
     const bt = b.createdAt ? b.createdAt.getTime() : 0;
     return bt - at;
   });
 
+  const boardKey = makeStickyBoardKey(latestFirst);
+
+  // 全消去など、明示的に空にしたい時だけ完全クリア
+  if (options.force && latestFirst.length === 0) {
+    els.stickyBoard.replaceChildren();
+    stickyNodeSignatures.clear();
+    lastStickyBoardKey = "";
+    els.noteCount.textContent = "0件・新しい順";
+    return;
+  }
+
+  // 最重要：
+  // 送信直後のFirestore snapshotでは「新規付箋はpendingで非表示」なので、
+  // 右側ボードに表示すべき内容は送信前と同じです。
+  // この場合は noteCount も含めてDOMを一切触りません。
+  // これにより、既存付箋のリフレッシュ／点滅を防ぎます。
+  if (boardKey === lastStickyBoardKey) {
+    return;
+  }
+
+  lastStickyBoardKey = boardKey;
   els.noteCount.textContent = `${latestFirst.length}件・新しい順`;
 
-  latestFirst.forEach(n => {
-    const div = document.createElement("div");
-    div.className = "note";
-    div.innerHTML = `
-      <div class="note-author">
-        <span>${escapeHtml(n.name)}</span>
-        <span class="note-tag">${escapeHtml(n.category || n.tag || "未分類")}</span>
-      </div>
-      <div class="note-text">${escapeHtml(n.text)}</div>
-      <div class="note-time">${n.createdAt ? n.createdAt.toLocaleTimeString("ja-JP", {hour:"2-digit", minute:"2-digit"}) : ""}</div>
-    `;
-    els.stickyBoard.appendChild(div);
+  const wantedIds = new Set(latestFirst.map(n => n.docId));
+
+  // いらなくなった付箋だけ削除する
+  Array.from(els.stickyBoard.children).forEach(node => {
+    if (!wantedIds.has(node.dataset.docId)) {
+      stickyNodeSignatures.delete(node.dataset.docId);
+      node.remove();
+    }
+  });
+
+  // 必要なものだけ追加・更新・並べ替え。
+  // すでに正しい位置にあるノードは動かさない。
+  latestFirst.forEach((n, index) => {
+    const sig = noteDomSignature(n);
+    let node = els.stickyBoard.querySelector(`[data-doc-id="${CSS.escape(n.docId)}"]`);
+
+    if (!node) {
+      node = document.createElement("div");
+      node.className = "note";
+      node.dataset.docId = n.docId;
+      node.innerHTML = noteHtml(n);
+      stickyNodeSignatures.set(n.docId, sig);
+    } else if (stickyNodeSignatures.get(n.docId) !== sig) {
+      node.innerHTML = noteHtml(n);
+      stickyNodeSignatures.set(n.docId, sig);
+    }
+
+    const currentAtIndex = els.stickyBoard.children[index];
+    if (currentAtIndex !== node) {
+      els.stickyBoard.insertBefore(node, currentAtIndex || null);
+    }
   });
 }
 
@@ -1157,19 +1291,48 @@ async function addNote(name, tag, text, statusEl) {
     return;
   }
 
+  statusEl.textContent = "送信中...";
+
   const id = `N${String(noteCounter).padStart(3, "0")}`;
   noteCounter++;
 
-  statusEl.textContent = "送信中...";
+  const cleanName = name.trim() || " ";
+  const cleanTag = tag.trim();
+  const cleanText = text.trim();
+  const timecode = currentTimecode();
+
+  const localNote = {
+    docId: id,
+    id,
+    name: cleanName,
+    tag: cleanTag,
+    text: cleanText,
+    category: "未分類",
+    timecode,
+    createdAt: new Date(),
+    likes: 0
+  };
+
+  // 発表者画面の左フォームから投稿した場合は、
+  // Firestore反映を待たず、その瞬間に「弾幕 → 付箋」の順番を予約する。
+  if (!isPostMode) {
+    seenIds.add(id);
+    queueDanmakuThenSticky(localNote);
+    // 送信直後は右側ボードを一切触らない。
+    // 弾幕終了後に queueDanmakuThenSticky() から追加されます。
+  }
+
+  // 送信中表示は関数冒頭で実施済み
+  
 
   try {
     await db.collection("notes").doc(id).set({
       id,
-      name: name.trim() || " ",
-      tag: tag.trim(),
-      text: text.trim(),
+      name: cleanName,
+      tag: cleanTag,
+      text: cleanText,
       category: "未分類",
-      timecode: currentTimecode(),
+      timecode,
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
       likes: 0
     });
@@ -1177,6 +1340,7 @@ async function addNote(name, tag, text, statusEl) {
     setTimeout(() => statusEl.textContent = "準備OK", 1400);
   } catch (e) {
     console.error(e);
+    pendingDanmakuIds.delete(id);
     statusEl.textContent = "保存中にエラーが発生しました。";
   }
 }
@@ -1543,8 +1707,12 @@ function drawNoData(c, w, h) {
 }
 
 /* ===== 弾幕 左→右 ===== */
-function showDanmaku(note) {
-  if (!els.danmakuLayer) return;
+function showDanmaku(note, afterFly) {
+  if (!els.danmakuLayer) {
+    if (typeof afterFly === "function") afterFly();
+    return;
+  }
+
   const d = document.createElement("div");
   d.className = "danmaku";
   d.textContent = note.text;
@@ -1552,10 +1720,27 @@ function showDanmaku(note) {
   const h = els.danmakuLayer.clientHeight || 400;
   const lanes = Math.max(3, Math.floor(h / 54));
   const lane = Math.floor(Math.random() * lanes);
+
+  // 速く反応して見えるように、弾幕時間を短縮。
+  // 画面左端すぐ外から出るので、送信直後にほぼ即表示されます。
+  const duration = 2.2 + Math.random() * 0.6;
+
   d.style.top = (lane * 54 + 12) + "px";
-  d.style.animationDuration = (5.0 + Math.random() * 1.6) + "s";
+  d.style.animationDuration = duration + "s";
+
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    d.remove();
+    if (typeof afterFly === "function") afterFly();
+  };
+
+  d.addEventListener("animationend", finish, { once: true });
   els.danmakuLayer.appendChild(d);
-  setTimeout(() => d.remove(), 7000);
+
+  // 保険：animationend が取れない場合でも付箋表示へ進める
+  setTimeout(finish, duration * 1000 + 120);
 }
 
 /* ===== ペン ===== */
@@ -1770,6 +1955,13 @@ async function clearAllNotes() {
     if (count > 0) await batch.commit();
 
     seenIds = new Set();
+    displayedNotes = [];
+    pendingDanmakuIds = new Set();
+    stickyNodeSignatures.clear();
+    lastStickyBoardKey = "";
+    initialNotesLoaded = false;
+    renderStickyBoard([], { force: true });
+    renderCharts();
     alert(`${total}件の付箋を消去しました。`);
   } catch (e) {
     console.error(e);
