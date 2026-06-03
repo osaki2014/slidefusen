@@ -329,6 +329,15 @@ button.ghost {
   word-break: break-word;
   overflow-wrap: anywhere;
   animation: noteIn .35s ease-out both;
+  transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
+  will-change: transform;
+}
+
+.note:hover {
+  z-index: 20;
+  transform: translateY(-8px) scale(1.045) rotate(0deg) !important;
+  box-shadow: 0 18px 30px rgba(0,0,0,.48);
+  filter: brightness(1.04);
 }
 
 .note:nth-child(2n) {
@@ -470,6 +479,37 @@ body.stickyOnly #rightFrame {
   left: 0;
   right: 0;
   width: auto;
+}
+
+body.stickyOnly #boardTab {
+  overflow: auto;
+  padding: 8px 14px 18px;
+}
+
+body.stickyOnly #stickyBoard {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
+  gap: 16px;
+}
+
+body.stickyOnly .note {
+  width: 100%;
+  min-height: 140px;
+  font-size: 16px;
+}
+
+body.stickyOnly .note-text {
+  font-size: 16px;
+  line-height: 1.48;
+}
+
+body.stickyOnly .note-author {
+  font-size: 14px;
+}
+
+body.stickyOnly .note-time {
+  font-size: 11px;
 }
 
 body.controlsOnly #leftFrame,
@@ -690,6 +730,10 @@ body.postMode #postOnly {
 #fileInput { display: none; }
 
 @media(max-width: 1050px) {
+  body.stickyOnly #stickyBoard {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   :root {
     --frame-left: 230px;
     --frame-right: 260px;
