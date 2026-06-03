@@ -323,7 +323,7 @@ button.ghost {
   color: #111;
   background: #fef9c3;
   border-radius: 10px;
-  padding: 11px 11px 24px;
+  padding: 11px 11px 42px;
   box-shadow: 0 8px 14px rgba(0,0,0,.34);
   transform: rotate(-1.2deg);
   word-break: break-word;
@@ -380,6 +380,67 @@ button.ghost {
   bottom: 5px;
   font-size: 10px;
   opacity: .58;
+}
+
+.note-actions {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.note-action-btn {
+  border: 0;
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 900;
+  cursor: pointer;
+  color: #111;
+  background: rgba(255,255,255,.70);
+  box-shadow: 0 2px 5px rgba(0,0,0,.16);
+}
+
+.note-action-btn:hover {
+  transform: translateY(-1px);
+  background: rgba(255,255,255,.95);
+}
+
+.like-btn {
+  color: #be123c;
+}
+
+.delete-note-btn {
+  margin-left: auto;
+  color: #334155;
+}
+
+.like-meter {
+  flex: 1;
+  height: 8px;
+  min-width: 32px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(15,23,42,.16);
+}
+
+.like-meter-fill {
+  height: 100%;
+  width: var(--like-width, 0%);
+  border-radius: 999px;
+  background: linear-gradient(90deg, #fb7185, #ef4444);
+}
+
+.like-count {
+  min-width: 22px;
+  text-align: right;
+  font-size: 12px;
+  font-weight: 900;
+  color: #991b1b;
 }
 
 @keyframes noteIn {
@@ -495,7 +556,7 @@ body.stickyOnly #stickyBoard {
 
 body.stickyOnly .note {
   width: 100%;
-  min-height: 140px;
+  min-height: 155px;
   font-size: 16px;
 }
 
@@ -984,6 +1045,7 @@ function init() {
   setupViewToggles();
   setupClassify();
   setupDataButtons();
+  setupStickyActionEvents();
   resizeCanvas();
   listenNotes();
 
@@ -1241,7 +1303,8 @@ function noteDomSignature(n) {
     n.tag,
     n.category,
     n.text,
-    n.timecode
+    n.timecode,
+    n.likes || 0
   ].join("|");
 }
 
@@ -1250,6 +1313,8 @@ function makeStickyBoardKey(list) {
 }
 
 function noteHtml(n) {
+  const likes = Number(n.likes || 0);
+  const meterWidth = Math.min(100, likes * 10);
   return `
     <div class="note-author">
       <span>${escapeHtml(n.name)}</span>
@@ -1257,6 +1322,14 @@ function noteHtml(n) {
     </div>
     <div class="note-text">${escapeHtml(n.text)}</div>
     <div class="note-time">${n.createdAt ? n.createdAt.toLocaleTimeString("ja-JP", {hour:"2-digit", minute:"2-digit"}) : ""}</div>
+    <div class="note-actions">
+      <button class="note-action-btn like-btn" type="button" title="いいね" data-action="like" data-doc-id="${escapeHtml(n.docId)}">♥</button>
+      <div class="like-meter" title="いいね数">
+        <div class="like-meter-fill" style="--like-width:${meterWidth}%"></div>
+      </div>
+      <span class="like-count">${likes}</span>
+      <button class="note-action-btn delete-note-btn" type="button" title="この付箋を削除" data-action="delete" data-doc-id="${escapeHtml(n.docId)}">🗑</button>
+    </div>
   `;
 }
 
@@ -1420,6 +1493,70 @@ function setupCommentEvents() {
     if (old.trim()) textEl.value = "";
   });
 }
+
+
+/* ===== 付箋ごとのいいね・削除 ===== */
+function setupStickyActionEvents() {
+  if (!els.stickyBoard) return;
+
+  els.stickyBoard.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-action]");
+    if (!btn) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const docId = btn.dataset.docId;
+    if (!docId) return;
+
+    if (btn.dataset.action === "like") {
+      await likeNote(docId, btn);
+    } else if (btn.dataset.action === "delete") {
+      await deleteOneNote(docId, btn);
+    }
+  });
+}
+
+async function likeNote(docId, btn) {
+  btn.disabled = true;
+  try {
+    await db.collection("notes").doc(docId).update({
+      likes: firebase.firestore.FieldValue.increment(1)
+    });
+  } catch (e) {
+    console.error(e);
+    alert("いいねの更新に失敗しました。Firestoreの権限を確認してください。");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function deleteOneNote(docId, btn) {
+  const ok = confirm("この付箋を削除しますか？");
+  if (!ok) return;
+
+  btn.disabled = true;
+  try {
+    await db.collection("notes").doc(docId).delete();
+
+    // ローカル状態からもすぐ除外して、画面反映を早くします。
+    notes = notes.filter(n => n.docId !== docId);
+    displayedNotes = displayedNotes.filter(n => n.docId !== docId);
+    seenIds.delete(docId);
+    pendingDanmakuIds.delete(docId);
+    stickyNodeSignatures.delete(docId);
+    lastStickyBoardKey = "";
+
+    renderStickyBoard(displayedNotes);
+    renderCharts();
+  } catch (e) {
+    console.error(e);
+    alert("付箋の削除に失敗しました。Firestoreの権限を確認してください。");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 
 /* ===== グラフモーダル ===== */
 function setupChartModal() {
@@ -1925,7 +2062,7 @@ function exportCsv() {
     return;
   }
 
-  const header = ["id", "timecode", "createdAt", "name", "tag", "category", "comment"];
+  const header = ["id", "timecode", "createdAt", "name", "tag", "category", "likes", "comment"];
   const lines = [header.join(",")];
 
   notes
@@ -1947,6 +2084,7 @@ function exportCsv() {
         n.name,
         n.tag,
         n.category,
+        n.likes || 0,
         n.text
       ].map(csvEscape).join(",");
       lines.push(row);
